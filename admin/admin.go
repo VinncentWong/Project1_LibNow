@@ -125,7 +125,6 @@ type Book struct {
 	BookName          string `gorm:"bookname"`
 	Synopsis          string `json:"synopsis"`
 	Author            string `json:"author"`
-	Rating            string `json:"rating"`
 	Stock             uint   `json:"stock"`
 	ISBN              string `json:"isbn"`
 	AdminLowVersion   AdminLowVersion
@@ -278,21 +277,6 @@ func PostAddBookHandler(c *gin.Context) {
 		})
 		return
 	}
-	ratingNumber, err := strconv.ParseFloat(bodyBook.Rating, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
-		})
-		return
-	}
-	if ratingNumber < 0 || ratingNumber > 10 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Rating must be between 0-10 !",
-			"success : ": false,
-		})
-		return
-	}
 	var admin Admin
 	result := db.Where("library_name = ?", bodyBook.AdminLowVersion.LibraryName).Take(&admin)
 	if result.Error != nil {
@@ -308,7 +292,6 @@ func PostAddBookHandler(c *gin.Context) {
 		Author:   bodyBook.Author,
 		Synopsis: bodyBook.Synopsis,
 		Stock:    bodyBook.Stock,
-		Rating:   bodyBook.Rating + "/10",
 		ISBN:     bodyBook.ISBN,
 		AdminLowVersion: AdminLowVersion{
 			LibraryName: bodyBook.AdminLowVersion.LibraryName,
@@ -367,7 +350,6 @@ func PatchEditBookHandler(c *gin.Context) {
 		Author:   bodyBook.Author,
 		Synopsis: bodyBook.Synopsis,
 		Stock:    bodyBook.Stock,
-		Rating:   bodyBook.Rating,
 		ISBN:     bodyBook.ISBN,
 		AdminLowVersion: AdminLowVersion{
 			LibraryName: bodyBook.AdminLowVersion.LibraryName,
