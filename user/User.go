@@ -464,7 +464,7 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 		return
 	}
 	var tempUser UserConfirm
-	result = db.Where("id = ?", bookLend.UserConfirm.ID).Take(&tempUser)
+	result = db.Where("id = ?", bookLend.UserConfirmID).Take(&tempUser)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message : ": result.Error.Error(),
