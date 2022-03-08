@@ -72,7 +72,7 @@ func InitDB() error {
 		return err
 	}
 	db = _db
-	err = db.AutoMigrate(&Admin{}, &Book{}, &AdminLowVersion{}, &AdminConfirm{})
+	err = db.AutoMigrate(&Admin{}, &Book{}, &AdminLowVersion{}, &AdminConfirm{}, &Payment{})
 	if err != nil {
 		return err
 	}
@@ -82,12 +82,13 @@ func InitDB() error {
 func InitRouter() {
 	router.POST("/admin/signup", PostSignupHandler)
 	router.POST("/admin/login", PostLoginHandler)
-	router.POST("/addbook", AuthMiddleware(), PostAddBookHandler)
-	router.PATCH("/editbook/:id", AuthMiddleware(), PatchEditBookHandler)
-	router.DELETE("/deletebook/:id", AuthMiddleware(), DeleteBookHandler)
-	router.GET("/profile/:id", AuthMiddleware(), GetProfileHandler)
+	router.POST("/admin/addbook", AuthMiddleware(), PostAddBookHandler)
+	router.PATCH("/admin/editbook/:id", AuthMiddleware(), PatchEditBookHandler)
+	router.DELETE("/admin/deletebook/:id", AuthMiddleware(), DeleteBookHandler)
+	router.GET("/admin/profile/:id", AuthMiddleware(), GetProfileHandler)
 	router.GET("/admin/getrequest/:libraryname", AuthMiddleware(), GetRequestHandler)
 	router.POST("/admin/confirm", AuthMiddleware(), PostConfirmHandler)
+	router.POST("/admin/payment", AuthMiddleware(), PostPaymentHandler)
 }
 
 // Struct disini
@@ -155,6 +156,12 @@ type BookLend struct {
 	Author        string `json:"author"`
 	UserConfirm   UserConfirm
 	UserConfirmID uint
+}
+
+type Payment struct {
+	ID          uint   `gorm:"primarykey"`
+	LibraryName string `json:"libraryname"`
+	Price       uint   `json:"price"`
 }
 
 // Handler disini
@@ -326,8 +333,25 @@ func PatchEditBookHandler(c *gin.Context) {
 		})
 		return
 	}
+	var book Book
+	res := db.Where("id = ?", id).Take(&book)
+	if res.Error != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message : ": res.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	var admin AdminLowVersion
+	res = db.Where("id = ?", book.AdminLowVersionID).Take(&admin)
+	if res.Error != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message : ": res.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
 	var bodyBook Book
-
 	err := c.BindJSON(&bodyBook)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -352,11 +376,11 @@ func PatchEditBookHandler(c *gin.Context) {
 		Stock:    bodyBook.Stock,
 		ISBN:     bodyBook.ISBN,
 		AdminLowVersion: AdminLowVersion{
-			LibraryName: bodyBook.AdminLowVersion.LibraryName,
-			Address:     bodyBook.AdminLowVersion.Address,
-			City:        bodyBook.AdminLowVersion.City,
-			PhoneNumber: bodyBook.AdminLowVersion.PhoneNumber,
-			Province:    bodyBook.AdminLowVersion.Province,
+			LibraryName: admin.LibraryName,
+			Address:     admin.Address,
+			City:        admin.City,
+			PhoneNumber: admin.PhoneNumber,
+			Province:    admin.Province,
 		},
 	}
 	result := db.Model(&tempBook).Where("id = ?", convertID).Updates(&tempBook)
@@ -392,11 +416,16 @@ func DeleteBookHandler(c *gin.Context) {
 		})
 		return
 	}
-	convertID, _ := strconv.ParseUint(id, 10, 64)
-	book := Book{
-		ID: uint(convertID),
+	var book Book
+	result := db.Where("id = ?", id)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": "Error when deleting your data in database !",
+			"success : ": false,
+		})
+		return
 	}
-	result := db.Delete(&book)
+	result = db.Delete(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message : ": "Error when deleting your data in database !",
@@ -464,10 +493,16 @@ func GetRequestHandler(c *gin.Context) {
 	var user []BookLend
 	result := db.Where("library_name = ?", libraryName).Preload("UserConfirm").Find(&user)
 	// Find bakal isi nilai kalau sesuai syarat
-	fmt.Println(user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	if len(user) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message : ": "No data found !",
 			"success : ": false,
 		})
 		return
@@ -574,5 +609,39 @@ func PostConfirmHandler(c *gin.Context) {
 		"message : ": "Success sending confirmation to the user !",
 		"success : ": true,
 		"data : ":    adminConfirm,
+	})
+}
+
+func PostPaymentHandler(c *gin.Context) {
+	var payment Payment
+
+	err := c.BindJSON(&payment)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message : ": err.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	result := db.Where("library_name = ?", payment.LibraryName)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	result = db.Create(&payment)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message : ": "Successfully add your payment data into database !",
+		"success : ": false,
+		"data : ":    payment,
 	})
 }

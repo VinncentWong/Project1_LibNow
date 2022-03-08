@@ -69,7 +69,7 @@ func InitDB() error {
 		return err
 	}
 	db = _db
-	err = db.AutoMigrate(&User{}, &UserConfirm{}, &BookLend{})
+	err = db.AutoMigrate(&User{}, &UserConfirm{}, &BookLend{}, &Payment{})
 	if err != nil {
 		return err
 	}
@@ -83,6 +83,7 @@ func InitRouter() {
 	router.GET("/user/getbookinfo", GetBookInfoHandler)
 	router.POST("/user/request", AuthMiddleware(), PostRequestHandler)
 	router.GET("/user/requestinfo/:username", AuthMiddleware(), GetConfirmFromAdminHandler)
+	router.POST("/user/returnbook", AuthMiddleware(), ReturnBookHandler)
 }
 
 // Struct disini
@@ -127,7 +128,6 @@ type Book struct {
 	BookName          string `gorm:"bookname"`
 	Synopsis          string `json:"synopsis"`
 	Author            string `json:"author"`
-	Rating            string `json:"rating"`
 	Stock             uint   `json:"stock"`
 	AdminLowVersion   AdminLowVersion
 	AdminLowVersionID uint
@@ -157,6 +157,12 @@ type BookLend struct {
 	Author        string `json:"author"`
 	UserConfirm   UserConfirm
 	UserConfirmID uint
+}
+
+type Payment struct {
+	ID          uint   `gorm:"primarykey"`
+	LibraryName string `json:"libraryname"`
+	Price       uint   `json:"price"`
 }
 
 // Handler disini
@@ -326,6 +332,13 @@ func GetBookInfoHandler(c *gin.Context) {
 			})
 			return
 		}
+		if len(book) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message : ": "Can't find your data !",
+				"success : ": false,
+			})
+			return
+		}
 	} else if isAuthorExist {
 		result = db.Where("author = ?", author).Preload("AdminLowVersion").Find(&book)
 		// Preload ini ditujukan untuk foreign key agar bisa nilainya terisi
@@ -336,11 +349,25 @@ func GetBookInfoHandler(c *gin.Context) {
 			})
 			return
 		}
+		if len(book) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message : ": "Can't find your data !",
+				"success : ": false,
+			})
+			return
+		}
 	} else if isBookNameExist {
 		result = db.Where("book_name = ?", bookName).Preload("AdminLowVersion").Find(&book)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message : ": result.Error.Error(),
+				"success : ": false,
+			})
+			return
+		}
+		if len(book) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message : ": "Can't find your data !",
 				"success : ": false,
 			})
 			return
@@ -511,5 +538,85 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 		"message : ": "Success find your request !",
 		"success : ": false,
 		"data : ":    tempAdmin,
+	})
+}
+
+func ReturnBookHandler(c *gin.Context) {
+	var bodyBook BookLend
+
+	err := c.BindJSON(&bodyBook)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"messsage : ": err.Error(),
+			"success : ":  false,
+		})
+		return
+	}
+	var user UserConfirm
+	result := db.Where("user_name = ?", bodyBook.UserConfirm.UserName).Take(&user)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	fmt.Println(user)
+	var bookLend BookLend
+	result = db.Preload("UserConfirm").Where("user_confirm_id = ?", user.ID).Take(&bookLend)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	fmt.Println(bookLend)
+	var adminConfirm AdminConfirm
+	result = db.Preload("BookLend").Where("book_lend_id = ?", bookLend.ID).Take(&adminConfirm)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	fmt.Println(adminConfirm)
+	var payment Payment
+	result = db.Where("library_name = ?", bookLend.LibraryName).Take(&payment)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	fmt.Println(payment)
+	timeNow := time.Now()
+	timeReturn := adminConfirm.ReturnBook
+	var price float64 = 0.0
+	if timeReturn.Unix()-timeNow.Unix() < 0 {
+		price = (float64(timeReturn.Unix()-timeNow.Unix()) / 86400.0) * (float64(payment.Price))
+	}
+	fmt.Println((float64(timeReturn.Unix()-timeNow.Unix()) / 86400.0) * (float64(payment.Price)))
+	var book Book
+	result = db.Preload("AdminLowVersion").Where("book_name = ?", bookLend.BookName).Take(&book)
+	if result.Error != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"message : ": result.Error.Error(),
+			"success : ": false,
+		})
+		return
+	}
+	fmt.Println(book)
+	book.Stock = book.Stock + 1
+	fmt.Println(book.Stock)
+	c.JSON(http.StatusOK, gin.H{
+		"message : ":                "Successfully return your book !",
+		"successfull : ":            true,
+		"data : ":                   bodyBook,
+		"return at :":               time.Now(),
+		"return book date : ":       timeReturn,
+		"payment for being late : ": uint(price),
 	})
 }
