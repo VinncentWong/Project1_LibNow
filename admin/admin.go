@@ -72,7 +72,7 @@ func InitDB() error {
 		return err
 	}
 	db = _db
-	err = db.AutoMigrate(&Admin{}, &Book{}, &AdminLowVersion{}, &AdminConfirm{}, &Payment{})
+	err = db.AutoMigrate(&Admin{}, &Book{}, &AdminLowVersion{}, &AdminConfirm{}, &Payment{}, &BookLendAdmin{}, &UserConfirmAdmin{})
 	if err != nil {
 		return err
 	}
@@ -133,13 +133,13 @@ type Book struct {
 }
 
 type AdminConfirm struct {
-	ID         uint `gorm:"primarykey"`
-	BookLend   BookLend
-	BookLendID uint
-	Accept     string `json:"confirm"`
-	GetBook    time.Time
-	ReturnBook time.Time
-	Token      string
+	ID              uint `gorm:"primarykey"`
+	BookLendAdmin   BookLendAdmin
+	BookLendAdminID uint
+	Accept          string `json:"confirm"`
+	GetBook         time.Time
+	ReturnBook      time.Time
+	Token           string
 }
 
 type UserConfirm struct {
@@ -162,6 +162,22 @@ type Payment struct {
 	ID          uint   `gorm:"primarykey"`
 	LibraryName string `json:"libraryname"`
 	Price       uint   `json:"price"`
+}
+
+type BookLendAdmin struct {
+	ID                 uint   `gorm:"primarykey"`
+	LibraryName        string `json:"libraryname"`
+	BookName           string `json:"bookname"`
+	Author             string `json:"author"`
+	UserConfirmAdmin   UserConfirmAdmin
+	UserConfirmAdminID uint
+}
+
+type UserConfirmAdmin struct {
+	ID          uint   `gorm:"primarykey"`
+	UserName    string `json:"username"`
+	PhoneNumber string `json:"phonenumber"`
+	Address     string `json:"address"`
 }
 
 // Handler disini
@@ -541,7 +557,7 @@ func PostConfirmHandler(c *gin.Context) {
 		return
 	}
 	var userRequest BookLend
-	result := db.Where("library_name = ?", bodyConfirm.BookLend.LibraryName).Where("book_name = ?", bodyConfirm.BookLend.BookName).Where("author = ?", bodyConfirm.BookLend.Author).Take(&userRequest)
+	result := db.Preload("UserConfirm").Where("library_name = ?", bodyConfirm.BookLendAdmin.LibraryName).Where("book_name = ?", bodyConfirm.BookLendAdmin.BookName).Where("author = ?", bodyConfirm.BookLendAdmin.Author).Take(&userRequest)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message : ": result.Error.Error(),
@@ -549,6 +565,13 @@ func PostConfirmHandler(c *gin.Context) {
 		})
 		return
 	}
+	fmt.Println(bodyConfirm)
+	// Buat cek apakah beneran ada datanya di Tabel BookLend
+	// userConfirmAdmin := UserConfirmAdmin{
+	// 	UserName: ,
+
+	// }
+
 	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 	s := make([]rune, 10)
@@ -557,23 +580,24 @@ func PostConfirmHandler(c *gin.Context) {
 	}
 	adminConfirm := AdminConfirm{
 		Accept: bodyConfirm.Accept,
-		BookLend: BookLend{
-			ID:          bodyConfirm.BookLend.ID,
-			BookName:    bodyConfirm.BookLend.BookName,
-			Author:      bodyConfirm.BookLend.Author,
-			LibraryName: bodyConfirm.BookLend.LibraryName,
-			UserConfirm: UserConfirm{
-				ID:          bodyConfirm.BookLend.UserConfirm.ID,
-				UserName:    bodyConfirm.BookLend.UserConfirm.UserName,
-				Address:     bodyConfirm.BookLend.UserConfirm.Address,
-				PhoneNumber: bodyConfirm.BookLend.UserConfirm.PhoneNumber,
+		BookLendAdmin: BookLendAdmin{
+			BookName:    bodyConfirm.BookLendAdmin.BookName,
+			Author:      bodyConfirm.BookLendAdmin.Author,
+			LibraryName: bodyConfirm.BookLendAdmin.LibraryName,
+			UserConfirmAdmin: UserConfirmAdmin{
+				UserName:    bodyConfirm.BookLendAdmin.UserConfirmAdmin.UserName,
+				Address:     bodyConfirm.BookLendAdmin.UserConfirmAdmin.Address,
+				PhoneNumber: bodyConfirm.BookLendAdmin.UserConfirmAdmin.PhoneNumber,
 			},
 		},
+		ReturnBook: time.Now(),
+		GetBook:    time.Now(),
+		Token:      "-",
 	}
 	fmt.Println(bodyConfirm)
 	fmt.Println(adminConfirm)
 	var book Book
-	result = db.Where("book_name = ?", bodyConfirm.BookLend.BookName).Take(&book)
+	result = db.Where("book_name = ?", bodyConfirm.BookLendAdmin.BookName).Take(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message : ": result.Error.Error(),
@@ -584,7 +608,7 @@ func PostConfirmHandler(c *gin.Context) {
 	fmt.Println("Isi Book adalah ", book.Stock)
 	if bodyConfirm.Accept == "Diterima" || bodyConfirm.Accept == "diterima" || bodyConfirm.Accept == "Y" || bodyConfirm.Accept == "y" {
 		book.Stock = book.Stock - 1
-		result = db.Model(&book).Where("book_name = ?", bodyConfirm.BookLend.BookName).Update("stock", book.Stock)
+		result = db.Model(&book).Where("book_name = ?", bodyConfirm.BookLendAdmin.BookName).Update("stock", book.Stock)
 		fmt.Println("Setelah diacc, stock tersisa adalah", book.Stock)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -597,6 +621,7 @@ func PostConfirmHandler(c *gin.Context) {
 		adminConfirm.GetBook = time.Now().Local()
 		adminConfirm.Token = string(s)
 	}
+	fmt.Println("admin confirm yang sekarang", adminConfirm)
 	result = db.Create(&adminConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
