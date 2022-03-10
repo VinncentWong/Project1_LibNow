@@ -25,7 +25,13 @@ func main() {
 		return
 	}
 	router = gin.Default()
-	router.Use(cors.Default())
+	router.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 	InitRouter()
 	router.Run()
 }
@@ -71,7 +77,7 @@ func InitDB() error {
 		return err
 	}
 	db = _db
-	err = db.AutoMigrate(&User{}, &UserConfirm{}, &BookLend{}, &Payment{}, &ReturnBookList{}, &TempUserConfirm{})
+	err = db.AutoMigrate(&User{}, &UserConfirm{}, &BookLend{}, &Payment{}, &ReturnBookList{}, &TempUserConfirm{}, &Admin{}, &Book{}, &AdminLowVersion{}, &AdminConfirm{}, &BookLendAdmin{}, &UserConfirmAdmin{})
 	if err != nil {
 		return err
 	}
@@ -158,6 +164,7 @@ type AdminConfirm struct {
 	ReturnBook      time.Time
 	Token           string
 }
+
 type BookLendAdmin struct {
 	ID                 uint   `gorm:"primarykey"`
 	LibraryName        string `json:"libraryname"`
@@ -166,6 +173,7 @@ type BookLendAdmin struct {
 	UserConfirmAdmin   UserConfirmAdmin
 	UserConfirmAdminID uint
 }
+
 type UserConfirm struct {
 	ID          uint   `gorm:"primarykey"`
 	UserName    string `json:"username"`
