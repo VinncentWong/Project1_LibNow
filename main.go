@@ -25,15 +25,38 @@ func main() {
 		return
 	}
 	router = gin.Default()
-	router.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
+	config := cors.DefaultConfig()
+	config.AllowAllOrigins = true
+	config.AllowCredentials = true
+	config.AddAllowHeaders("authorization")
+	router.Use(cors.New(config))
 	InitRouter()
+	router.GET("/user/login", PostTesti)
 	router.Run()
+}
+
+func enableCors(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+}
+
+func CORS() gin.HandlerFunc {
+	// TO allow CORS
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	}
+}
+
+func PostTesti(c *gin.Context) {
+	c.JSON(200, gin.H{
+		"success ": true,
+	})
 }
 
 // Auth disini
@@ -86,7 +109,7 @@ func InitDB() error {
 
 func InitRouter() {
 	router.POST("/user/signup", PostSignupHandler)
-	router.POST("/user/login", PostLoginHandler)
+	router.GET("/user/login", PostLoginHandler)
 	router.GET("/user/libraryinfo", GetLibraryInfoHandler)
 	router.GET("/user/getbookinfo", GetBookInfoHandler)
 	router.POST("/user/request", AuthMiddleware(), PostRequestHandler)
@@ -280,6 +303,9 @@ func PostSignupHandler(c *gin.Context) {
 
 func PostLoginHandler(c *gin.Context) {
 	var bodyLogin User
+
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "POST")
 
 	err := c.BindJSON(&bodyLogin)
 	if err != nil {
