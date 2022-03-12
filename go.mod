@@ -1,4 +1,4 @@
-module admin.go
+module LibNow
 
 go 1.17
 

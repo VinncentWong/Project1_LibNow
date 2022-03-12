@@ -15,8 +15,9 @@ import (
 	"gorm.io/gorm"
 )
 
-var router *gin.Engine
 var db *gorm.DB
+
+var router *gin.Engine
 
 func main() {
 	err := InitDB()
@@ -25,47 +26,58 @@ func main() {
 		return
 	}
 	router = gin.Default()
-	config := cors.DefaultConfig()
-	config.AllowAllOrigins = true
-	config.AllowCredentials = true
-	config.AddAllowHeaders("authorization")
-	router.Use(cors.New(config))
+	router.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 	InitRouter()
-	router.GET("/user/login", PostTesti)
-	router.Run()
-}
 
-func enableCors(w *http.ResponseWriter) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-}
-
-func CORS() gin.HandlerFunc {
-	// TO allow CORS
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		c.Next()
-	}
-}
-
-func PostTesti(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"success ": true,
-	})
+	//Ganti Port Bentar ya ke 5000
+	router.Run(":5000")
 }
 
 // Auth disini
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddlewareUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.Request.Header.Get("Authorization")
 		header = header[len("Bearer "):]
 		token, err := jwt.Parse(header, func(t *jwt.Token) (interface{}, error) {
 			return []byte("passwordBuatSigningUser"), nil
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "JWT validation error.",
+				"error":   err.Error(),
+			})
+			c.Abort()
+			return
+		}
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+			c.Set("id", claims["id"])
+			c.Next()
+			return
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": "JWT invalid.",
+				"error":   err.Error(),
+			})
+			c.Abort()
+			return
+		}
+	}
+}
+
+func AuthMiddlewareAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.Request.Header.Get("Authorization")
+		header = header[len("Bearer "):]
+		token, err := jwt.Parse(header, func(t *jwt.Token) (interface{}, error) {
+			return []byte("passwordBuatSigningAdmin"), nil
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -109,24 +121,24 @@ func InitDB() error {
 
 func InitRouter() {
 	router.POST("/user/signup", PostSignupHandler)
-	router.GET("/user/login", PostLoginHandler)
+	router.POST("/user/login", PostLoginHandler)
 	router.GET("/user/libraryinfo", GetLibraryInfoHandler)
 	router.GET("/user/getbookinfo", GetBookInfoHandler)
-	router.POST("/user/request", AuthMiddleware(), PostRequestHandler)
-	router.GET("/user/requestinfo/:username", AuthMiddleware(), GetConfirmFromAdminHandler)
-	router.POST("/user/returnbook", AuthMiddleware(), ReturnBookHandler)
-	router.GET("/user/getlistlendbook/:id", AuthMiddleware(), GetListLendBook)
-	router.GET("/user/extendreturnbook/:id", AuthMiddleware(), PostExtendBookHandler)
+	router.POST("/user/request", AuthMiddlewareUser(), PostRequestHandler)
+	router.GET("/user/requestinfo/:id", AuthMiddlewareUser(), GetConfirmFromAdminHandler)
+	router.POST("/user/returnbook", AuthMiddlewareUser(), ReturnBookHandler)
+	router.GET("/user/getlistlendbook/:id", AuthMiddlewareUser(), GetListLendBook)
+	router.GET("/user/extendreturnbook/:id", AuthMiddlewareUser(), PostExtendBookHandler)
 
 	router.POST("/admin/signup", PostSignupHandlerAdmin)
 	router.POST("/admin/login", PostLoginHandlerAdmin)
-	router.POST("/admin/addbook", AuthMiddleware(), PostAddBookHandler)
-	router.PATCH("/admin/editbook/:id", AuthMiddleware(), PatchEditBookHandler)
-	router.DELETE("/admin/deletebook/:id", AuthMiddleware(), DeleteBookHandler)
-	router.GET("/admin/profile/:id", AuthMiddleware(), GetProfileHandler)
-	router.GET("/admin/getrequest/:libraryname", AuthMiddleware(), GetRequestHandler)
-	router.POST("/admin/confirm", AuthMiddleware(), PostConfirmHandler)
-	router.POST("/admin/payment", AuthMiddleware(), PostPaymentHandler)
+	router.POST("/admin/addbook", AuthMiddlewareAdmin(), PostAddBookHandler)
+	router.PATCH("/admin/editbook/:id", AuthMiddlewareAdmin(), PatchEditBookHandler)
+	router.DELETE("/admin/deletebook/:id", AuthMiddlewareAdmin(), DeleteBookHandler)
+	router.GET("/admin/profile/:id", AuthMiddlewareAdmin(), GetProfileHandler)
+	router.GET("/admin/getrequest/:id", AuthMiddlewareAdmin(), GetRequestHandler)
+	router.POST("/admin/confirm", AuthMiddlewareAdmin(), PostConfirmHandler)
+	router.POST("/admin/payment", AuthMiddlewareAdmin(), PostPaymentHandler)
 }
 
 // Struct disini
@@ -251,29 +263,29 @@ func PostSignupHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyUser)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 	if strings.Contains(bodyUser.EmailOrPhoneNumber, "!") || strings.Contains(bodyUser.EmailOrPhoneNumber, "#") || strings.Contains(bodyUser.EmailOrPhoneNumber, "$") || strings.Contains(bodyUser.EmailOrPhoneNumber, "%") || strings.Contains(bodyUser.EmailOrPhoneNumber, "^") || strings.Contains(bodyUser.EmailOrPhoneNumber, "&") || strings.Contains(bodyUser.EmailOrPhoneNumber, "*") || strings.Contains(bodyUser.EmailOrPhoneNumber, "(") || strings.Contains(bodyUser.EmailOrPhoneNumber, "\"") || strings.Contains(bodyUser.EmailOrPhoneNumber, "~") || strings.Contains(bodyUser.EmailOrPhoneNumber, "+") || strings.Contains(bodyUser.EmailOrPhoneNumber, "=") || strings.Contains(bodyUser.EmailOrPhoneNumber, "{") || strings.Contains(bodyUser.EmailOrPhoneNumber, "}") || strings.Contains(bodyUser.EmailOrPhoneNumber, "|") || strings.Contains(bodyUser.EmailOrPhoneNumber, ":") || strings.Contains(bodyUser.EmailOrPhoneNumber, ";") || strings.Contains(bodyUser.EmailOrPhoneNumber, "<") || strings.Contains(bodyUser.EmailOrPhoneNumber, ">") || strings.Contains(bodyUser.EmailOrPhoneNumber, ",") || strings.Contains(bodyUser.EmailOrPhoneNumber, "?") || strings.Contains(bodyUser.EmailOrPhoneNumber, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Email only can contain some symbols(_,@), numbers, or letters !",
-			"success : ": false,
+			"message": "Email only can contain some symbols(_,@), numbers, or letters !",
+			"success": false,
 		})
 		return
 	}
 	if len(bodyUser.Password) < 8 || len(bodyUser.Password) > 16 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Password length must be between 8-16 !",
-			"success : ": false,
+			"message": "Password length must be between 8-16 !",
+			"success": false,
 		})
 		return
 	}
 	if strings.Contains(bodyUser.Password, "!") || strings.Contains(bodyUser.Password, "@") || strings.Contains(bodyUser.Password, "#") || strings.Contains(bodyUser.Password, "$") || strings.Contains(bodyUser.Password, "%") || strings.Contains(bodyUser.Password, "^") || strings.Contains(bodyUser.Password, "&") || strings.Contains(bodyUser.Password, "*") || strings.Contains(bodyUser.Password, "(") || strings.Contains(bodyUser.Password, "\"") || strings.Contains(bodyUser.Password, "~") || strings.Contains(bodyUser.Password, "+") || strings.Contains(bodyUser.Password, "=") || strings.Contains(bodyUser.Password, "{") || strings.Contains(bodyUser.Password, "}") || strings.Contains(bodyUser.Password, "|") || strings.Contains(bodyUser.Password, ":") || strings.Contains(bodyUser.Password, ";") || strings.Contains(bodyUser.Password, "<") || strings.Contains(bodyUser.Password, ">") || strings.Contains(bodyUser.Password, ",") || strings.Contains(bodyUser.Password, ".") || strings.Contains(bodyUser.Password, "?") || strings.Contains(bodyUser.Password, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Password only can contain some symbols(-,_), numbers, or letters !",
-			"success : ": false,
+			"message": "Password only can contain some symbols(-,_), numbers, or letters !",
+			"success": false,
 		})
 		return
 	}
@@ -286,17 +298,17 @@ func PostSignupHandler(c *gin.Context) {
 	result := db.Create(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Registration succesfully !",
-		"success : ": true,
-		"data : ": gin.H{
-			"username : ":           user.Username,
-			"email/phone number : ": user.EmailOrPhoneNumber,
+		"message": "Registration succesfully !",
+		"success": true,
+		"data": gin.H{
+			"username":           user.Username,
+			"email/phone number": user.EmailOrPhoneNumber,
 		},
 	})
 }
@@ -310,18 +322,18 @@ func PostLoginHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyLogin)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 	var user User
-	result := db.Where("email_or_phone_number = ?", bodyLogin.EmailOrPhoneNumber).Find(&user)
+	result := db.Where("email_or_phone_number = ?", bodyLogin.EmailOrPhoneNumber).Take(&user)
 	// ? nanti akan diisi sama bodyLogin.EmailOrPhoneNumber
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -340,15 +352,16 @@ func PostLoginHandler(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"message : ": "Success Login !",
-			"Token : ":   tokenString,
-			"success : ": true,
+			"message": "Success Login !",
+			"id":      user.ID,
+			"Token":   tokenString,
+			"success": true,
 		})
 		return
 	} else {
 		c.JSON(http.StatusForbidden, gin.H{
-			"message : ": "Wrong email or password !",
-			"success : ": false,
+			"message": "Wrong email or password !",
+			"success": false,
 		})
 		return
 	}
@@ -362,8 +375,8 @@ func GetLibraryInfoHandler(c *gin.Context) {
 
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -371,18 +384,18 @@ func GetLibraryInfoHandler(c *gin.Context) {
 	var tempAdmin []gin.H
 	for _, value := range getAdmin {
 		tempAdmin = append(tempAdmin, gin.H{
-			"libraryname : ":  value.LibraryName,
-			"province : ":     value.Province,
-			"city : ":         value.City,
-			"district : ":     value.District,
-			"neigborhoods : ": value.Neighborhoods,
-			"phonenumber : ":  value.PhoneNumber,
-			"open - close":    value.TimeOpenClose,
+			"libraryname":  value.LibraryName,
+			"province":     value.Province,
+			"city":         value.City,
+			"district":     value.District,
+			"neigborhoods": value.Neighborhoods,
+			"phonenumber":  value.PhoneNumber,
+			"open - close": value.TimeOpenClose,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully get the data !",
-		"data : ":    tempAdmin,
+		"message": "Successfully get the data !",
+		"data":    tempAdmin,
 	})
 }
 
@@ -392,8 +405,8 @@ func GetBookInfoHandler(c *gin.Context) {
 
 	if !isAuthorExist && !isBookNameExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": "Can't find author or bookname !",
-			"success : ":  false,
+			"messsage": "Can't find author or bookname !",
+			"success":  false,
 		})
 		return
 	}
@@ -408,15 +421,15 @@ func GetBookInfoHandler(c *gin.Context) {
 		result := db.Where("author = ?", author).Where("book_name = ?", bookName).Find(&book)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message : ": result.Error.Error(),
-				"success : ": false,
+				"message": result.Error.Error(),
+				"success": false,
 			})
 			return
 		}
 		if len(book) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message : ": "Can't find your data !",
-				"success : ": false,
+				"message": "Can't find your data !",
+				"success": false,
 			})
 			return
 		}
@@ -425,15 +438,15 @@ func GetBookInfoHandler(c *gin.Context) {
 		// Preload ini ditujukan untuk foreign key agar bisa nilainya terisi
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message : ": result.Error.Error(),
-				"success : ": false,
+				"message": result.Error.Error(),
+				"success": false,
 			})
 			return
 		}
 		if len(book) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message : ": "Can't find your data !",
-				"success : ": false,
+				"message": "Can't find your data !",
+				"success": false,
 			})
 			return
 		}
@@ -441,30 +454,30 @@ func GetBookInfoHandler(c *gin.Context) {
 		result = db.Where("book_name = ?", bookName).Preload("AdminLowVersion").Find(&book)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message : ": result.Error.Error(),
-				"success : ": false,
+				"message": result.Error.Error(),
+				"success": false,
 			})
 			return
 		}
 		if len(book) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message : ": "Can't find your data !",
-				"success : ": false,
+				"message": "Can't find your data !",
+				"success": false,
 			})
 			return
 		}
 	}
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Success find the data of the book !",
-		"success : ": true,
-		"data : ":    book,
+		"message": "Success find the data of the book !",
+		"success": true,
+		"data":    book,
 	})
 	// Find akan mencari sesuai kondisi lalu kalau ketem unilainya diisikan ke variabel di dalam find tapi jika tidak akan direturn dalam bentuk error
 }
@@ -475,8 +488,8 @@ func PostRequestHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyBook)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": err.Error(),
-			"success : ":  false,
+			"messsage": err.Error(),
+			"success":  false,
 		})
 		return
 	}
@@ -486,8 +499,8 @@ func PostRequestHandler(c *gin.Context) {
 	result := db.Where("library_name = ?", bodyBook.LibraryName).Take(&admin)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -497,8 +510,8 @@ func PostRequestHandler(c *gin.Context) {
 	result = db.Where("book_name = ?", bodyBook.BookName).Take(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -508,8 +521,8 @@ func PostRequestHandler(c *gin.Context) {
 	result = db.Where("username = ?", bodyBook.UserConfirm.UserName).Take(&userCheck)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -527,33 +540,33 @@ func PostRequestHandler(c *gin.Context) {
 	result = db.Create(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully add your request into database",
-		"success : ": true,
-		"data : ":    user,
+		"message": "Successfully add your request into database",
+		"success": true,
+		"data":    user,
 	})
 }
 
 func GetConfirmFromAdminHandler(c *gin.Context) {
-	userName, isUserNameExist := c.Params.Get("username")
+	id, isUserNameExist := c.Params.Get("id")
 	if !isUserNameExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": "Username doesn't exist !",
-			"success : ":  false,
+			"messsage": "Username doesn't exist !",
+			"success":  false,
 		})
 		return
 	}
 	var user []UserConfirmAdmin
-	result := db.Where("user_name = ?", userName).Find(&user)
+	result := db.Where("id = ?", id).Find(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -566,8 +579,8 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 	}
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -575,16 +588,16 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 	result = db.Where("id = ?", bookLend.UserConfirmAdminID).Take(&tempUser)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	result = db.Preload("UserConfirmAdmin").Where("user_confirm_admin_id = ?", bookLend.UserConfirmAdminID).Take(&bookLend)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -592,8 +605,8 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 	result = db.Preload("BookLendAdmin").Where("book_lend_admin_id = ?", bookLend.ID).Take(&admin)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -616,9 +629,9 @@ func GetConfirmFromAdminHandler(c *gin.Context) {
 	}
 	fmt.Println(tempAdmin)
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Success find your request !",
-		"success : ": false,
-		"data : ":    tempAdmin,
+		"message": "Success find your request !",
+		"success": false,
+		"data":    tempAdmin,
 	})
 }
 
@@ -628,8 +641,8 @@ func ReturnBookHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyBook)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": "Data doesn't valid",
-			"success : ":  false,
+			"messsage": "Data doesn't valid",
+			"success":  false,
 		})
 		return
 	}
@@ -637,8 +650,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result := db.Preload("UserConfirmAdmin").Where("book_name = ?", bodyBook.BookName).Take(&bookLend)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -656,8 +669,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Create(&tempUserConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -665,8 +678,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Preload("BookLendAdmin").Where("book_lend_admin_id = ?", bookLend.ID).Take(&adminConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -674,8 +687,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Where("library_name = ?", bookLend.LibraryName).Take(&payment)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -691,8 +704,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Preload("AdminLowVersion").Where("book_name = ?", bookLend.BookName).Take(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -701,8 +714,8 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Model(&book).Update("stock", book.Stock)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -721,19 +734,19 @@ func ReturnBookHandler(c *gin.Context) {
 	result = db.Create(&detailLend)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	fmt.Println(detailLend)
 	c.JSON(http.StatusOK, gin.H{
-		"message : ":                "Successfully return your book !",
-		"successfull : ":            true,
-		"data : ":                   detailLend,
-		"return at :":               time.Now(),
-		"return book date : ":       timeReturn,
-		"payment for being late : ": uint(price),
+		"message":                "Successfully return your book !",
+		"successfull":            true,
+		"data":                   detailLend,
+		"return at :":            time.Now(),
+		"return book date":       timeReturn,
+		"payment for being late": uint(price),
 	})
 }
 
@@ -741,8 +754,8 @@ func GetListLendBook(c *gin.Context) {
 	id, isIdExist := c.Params.Get("id")
 	if !isIdExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": "Can't find your username !",
-			"success : ":  false,
+			"messsage": "Can't find your username !",
+			"success":  false,
 		})
 		return
 	}
@@ -750,8 +763,8 @@ func GetListLendBook(c *gin.Context) {
 	result := db.Where("id = ?", id).Take(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -759,8 +772,8 @@ func GetListLendBook(c *gin.Context) {
 	result = db.Preload("UserConfirmAdmin").Where("user_confirm_admin_id = ?", id).Take(&bookLendAdmin)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -768,8 +781,8 @@ func GetListLendBook(c *gin.Context) {
 	result = db.Preload("BookLendAdmin").Where("book_lend_admin_id = ?", bookLendAdmin.ID).Take(&adminConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -790,9 +803,9 @@ func GetListLendBook(c *gin.Context) {
 		},
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Success find your data in database !",
-		"success : ": true,
-		"data : ":    realAdminConfirm,
+		"message": "Success find your data in database !",
+		"success": true,
+		"data":    realAdminConfirm,
 	})
 }
 
@@ -800,8 +813,8 @@ func PostExtendBookHandler(c *gin.Context) {
 	id, isIdExist := c.Params.Get("id")
 	if !isIdExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"messsage : ": "Can't find your username !",
-			"success : ":  false,
+			"messsage": "Can't find your username !",
+			"success":  false,
 		})
 		return
 	}
@@ -809,8 +822,8 @@ func PostExtendBookHandler(c *gin.Context) {
 	result := db.Where("id = ?", id).Take(&userConfirmAdmin)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -818,8 +831,8 @@ func PostExtendBookHandler(c *gin.Context) {
 	result = db.Where("user_confirm_admin_id = ?", id).Take(&bookLend)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -827,8 +840,8 @@ func PostExtendBookHandler(c *gin.Context) {
 	result = db.Where("book_lend_admin_id = ?", bookLend.ID).Take(&adminConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -852,8 +865,8 @@ func PostExtendBookHandler(c *gin.Context) {
 	result = db.Where("user_name = ?", userConfirmAdmin.UserName).Find(&tempUserConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -864,15 +877,15 @@ func PostExtendBookHandler(c *gin.Context) {
 		result = db.Where("temp_user_confirm_id = ?", tempUserConfirm[i].ID).Take(&value)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message : ": result.Error.Error(),
-				"success : ": false,
+				"message": result.Error.Error(),
+				"success": false,
 			})
 			return
 		}
 		if value.Price > 0 {
 			c.JSON(http.StatusForbidden, gin.H{
-				"message : ": "You still have some money fine to paid. Please pay it first so you can lend our book again !",
-				"success : ": false,
+				"message": "You still have some money fine to paid. Please pay it first so you can lend our book again !",
+				"success": false,
 			})
 			return
 		}
@@ -883,16 +896,16 @@ func PostExtendBookHandler(c *gin.Context) {
 	result = db.Model(&adminConfirm).Update("return_book", adminConfirm.ReturnBook)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ":     "Successfully extend your return book deadline !",
-		"success : ":     true,
-		"data : ":        realAdminConfirm,
-		"extended to : ": adminConfirm.ReturnBook,
+		"message":     "Successfully extend your return book deadline !",
+		"success":     true,
+		"data":        realAdminConfirm,
+		"extended to": adminConfirm.ReturnBook,
 	})
 }
 
@@ -901,22 +914,22 @@ func PostSignupHandlerAdmin(c *gin.Context) {
 	err := c.BindJSON(&bodyUser)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 	if len(bodyUser.Password) < 8 || len(bodyUser.Password) > 16 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Password length must be between 8-16 !",
-			"success : ": false,
+			"message": "Password length must be between 8-16 !",
+			"success": false,
 		})
 		return
 	}
 	if strings.Contains(bodyUser.Password, "!") || strings.Contains(bodyUser.Password, "@") || strings.Contains(bodyUser.Password, "#") || strings.Contains(bodyUser.Password, "$") || strings.Contains(bodyUser.Password, "%") || strings.Contains(bodyUser.Password, "^") || strings.Contains(bodyUser.Password, "&") || strings.Contains(bodyUser.Password, "*") || strings.Contains(bodyUser.Password, "(") || strings.Contains(bodyUser.Password, "\"") || strings.Contains(bodyUser.Password, "~") || strings.Contains(bodyUser.Password, "+") || strings.Contains(bodyUser.Password, "=") || strings.Contains(bodyUser.Password, "{") || strings.Contains(bodyUser.Password, "}") || strings.Contains(bodyUser.Password, "|") || strings.Contains(bodyUser.Password, ":") || strings.Contains(bodyUser.Password, ";") || strings.Contains(bodyUser.Password, "<") || strings.Contains(bodyUser.Password, ">") || strings.Contains(bodyUser.Password, ",") || strings.Contains(bodyUser.Password, ".") || strings.Contains(bodyUser.Password, "?") || strings.Contains(bodyUser.Password, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Password only can contain some symbols(-,_), numbers, or letters !",
-			"success : ": false,
+			"message": "Password only can contain some symbols(-,_), numbers, or letters !",
+			"success": false,
 		})
 		return
 	}
@@ -935,22 +948,22 @@ func PostSignupHandlerAdmin(c *gin.Context) {
 	result := db.Create(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Registration Success",
-		"success : ": true,
-		"data : ": gin.H{
-			"libraryname : ":   bodyUser.LibraryName,
-			"province : ":      bodyUser.Province,
-			"city : ":          bodyUser.City,
-			"district : ":      bodyUser.District,
-			"neighborhoods : ": bodyUser.Neighborhoods,
-			"address : ":       bodyUser.Address,
-			"open - close":     bodyUser.TimeOpenClose,
+		"message": "Registration Success",
+		"success": true,
+		"data": gin.H{
+			"libraryname":   bodyUser.LibraryName,
+			"province":      bodyUser.Province,
+			"city":          bodyUser.City,
+			"district":      bodyUser.District,
+			"neighborhoods": bodyUser.Neighborhoods,
+			"address":       bodyUser.Address,
+			"open - close":  bodyUser.TimeOpenClose,
 		},
 	})
 }
@@ -960,18 +973,18 @@ func PostLoginHandlerAdmin(c *gin.Context) {
 	err := c.BindJSON(&bodyLogin)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 
 	var user Admin
-	result := db.Where("email = ?", bodyLogin.Email).Find(&user)
+	result := db.Where("email = ?", bodyLogin.Email).Take(&user)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -990,15 +1003,16 @@ func PostLoginHandlerAdmin(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"message : ": "Success Login !",
-			"Token : ":   tokenString,
-			"success : ": true,
+			"message": "Success Login !",
+			"id":      user.ID,
+			"Token":   tokenString,
+			"success": true,
 		})
 		return
 	} else {
 		c.JSON(http.StatusForbidden, gin.H{
-			"message : ": "Wrong email or password !",
-			"success : ": false,
+			"message": "Wrong email or password !",
+			"success": false,
 		})
 		return
 	}
@@ -1009,8 +1023,8 @@ func PostAddBookHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyBook)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1018,8 +1032,8 @@ func PostAddBookHandler(c *gin.Context) {
 	result := db.Where("library_name = ?", bodyBook.AdminLowVersion.LibraryName).Take(&admin)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1041,15 +1055,15 @@ func PostAddBookHandler(c *gin.Context) {
 	result = db.Create(&tempBook)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully add your book into database!",
-		"success : ": true,
-		"data : ":    tempBook,
+		"message": "Successfully add your book into database!",
+		"success": true,
+		"data":    tempBook,
 	})
 }
 
@@ -1058,8 +1072,8 @@ func PatchEditBookHandler(c *gin.Context) {
 	// id buku
 	if !idExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "ID doesn't exist",
-			"success : ": false,
+			"message": "ID doesn't exist",
+			"success": false,
 		})
 		return
 	}
@@ -1067,8 +1081,8 @@ func PatchEditBookHandler(c *gin.Context) {
 	res := db.Where("id = ?", id).Take(&book)
 	if res.Error != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": res.Error.Error(),
-			"success : ": false,
+			"message": res.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1076,8 +1090,8 @@ func PatchEditBookHandler(c *gin.Context) {
 	res = db.Where("id = ?", book.AdminLowVersionID).Take(&admin)
 	if res.Error != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": res.Error.Error(),
-			"success : ": false,
+			"message": res.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1085,16 +1099,16 @@ func PatchEditBookHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyBook)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 	convertID, err := strconv.ParseUint(id, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1117,23 +1131,23 @@ func PatchEditBookHandler(c *gin.Context) {
 	// Model yang mau diupdate objeknya siapa, updates itu lebih ke nanti isi yg diupdate itu
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	result = db.Where("id = ?", id).Take(&tempBook)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success ":   false,
+			"message":  result.Error.Error(),
+			"success ": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully update the book!",
-		"success ":   true,
-		"data":       tempBook,
+		"message":  "Successfully update the book!",
+		"success ": true,
+		"data":     tempBook,
 	})
 }
 
@@ -1141,8 +1155,8 @@ func DeleteBookHandler(c *gin.Context) {
 	id, isIdExist := c.Params.Get("id")
 	if !isIdExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Can't found your book!",
-			"success : ": false,
+			"message": "Can't found your book!",
+			"success": false,
 		})
 		return
 	}
@@ -1150,22 +1164,22 @@ func DeleteBookHandler(c *gin.Context) {
 	result := db.Where("id = ?", id)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": "Error when deleting your data in database !",
-			"success : ": false,
+			"message": "Error when deleting your data in database !",
+			"success": false,
 		})
 		return
 	}
 	result = db.Delete(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": "Error when deleting your data in database !",
-			"success : ": false,
+			"message": "Error when deleting your data in database !",
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully delete your book!",
-		"success : ": false,
+		"message": "Successfully delete your book!",
+		"success": false,
 	})
 }
 
@@ -1173,8 +1187,8 @@ func GetProfileHandler(c *gin.Context) {
 	id, isIdExist := c.Params.Get("id")
 	if !isIdExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Can't find your library profile !",
-			"success : ": false,
+			"message": "Can't find your library profile !",
+			"success": false,
 		})
 		return
 	}
@@ -1185,55 +1199,55 @@ func GetProfileHandler(c *gin.Context) {
 	result := db.Where("id= ?", convertID).Find(&libraryProfile)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	if libraryProfile.Email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Can't find your data !",
-			"success : ": false,
+			"message": "Can't find your data !",
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Success find your profile in database !",
-		"success : ": true,
-		"data : ": gin.H{
-			"libraryname : ":   libraryProfile.LibraryName,
-			"province : ":      libraryProfile.Province,
-			"city : ":          libraryProfile.City,
-			"district : ":      libraryProfile.District,
-			"neighborhoods : ": libraryProfile.Neighborhoods,
-			"address : ":       libraryProfile.Address,
+		"message": "Success find your profile in database !",
+		"success": true,
+		"data": gin.H{
+			"libraryname":   libraryProfile.LibraryName,
+			"province":      libraryProfile.Province,
+			"city":          libraryProfile.City,
+			"district":      libraryProfile.District,
+			"neighborhoods": libraryProfile.Neighborhoods,
+			"address":       libraryProfile.Address,
 		},
 	})
 }
 
 func GetRequestHandler(c *gin.Context) {
-	libraryName, isLibraryNameExist := c.Params.Get("libraryname")
+	id, isLibraryNameExist := c.Params.Get("id")
 	if !isLibraryNameExist {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Library name doesn't exist !",
-			"success : ": false,
+			"message": "Library name doesn't exist !",
+			"success": false,
 		})
 		return
 	}
 	var user []BookLend
-	result := db.Where("library_name = ?", libraryName).Preload("UserConfirm").Find(&user)
+	result := db.Where("id = ?", id).Preload("UserConfirm").Find(&user)
 	// Find bakal isi nilai kalau sesuai syarat
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	if len(user) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "No data found !",
-			"success : ": false,
+			"message": "No data found !",
+			"success": false,
 		})
 		return
 	}
@@ -1253,9 +1267,9 @@ func GetRequestHandler(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully find all request from user !",
-		"success : ": true,
-		"data : ":    tempUser,
+		"message": "Successfully find all request from user !",
+		"success": true,
+		"data":    tempUser,
 	})
 }
 
@@ -1265,8 +1279,8 @@ func PostConfirmHandler(c *gin.Context) {
 	err := c.BindJSON(&bodyConfirm)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": "Can't found response from admin !",
-			"success : ": false,
+			"message": "Can't found response from admin !",
+			"success": false,
 		})
 		return
 	}
@@ -1274,8 +1288,8 @@ func PostConfirmHandler(c *gin.Context) {
 	result := db.Preload("UserConfirm").Where("library_name = ?", bodyConfirm.BookLendAdmin.LibraryName).Where("book_name = ?", bodyConfirm.BookLendAdmin.BookName).Where("author = ?", bodyConfirm.BookLendAdmin.Author).Take(&userRequest)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1314,8 +1328,8 @@ func PostConfirmHandler(c *gin.Context) {
 	result = db.Where("book_name = ?", bodyConfirm.BookLendAdmin.BookName).Take(&book)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
@@ -1326,8 +1340,8 @@ func PostConfirmHandler(c *gin.Context) {
 		fmt.Println("Setelah diacc, stock tersisa adalah", book.Stock)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message : ": result.Error.Error(),
-				"success : ": false,
+				"message": result.Error.Error(),
+				"success": false,
 			})
 			return
 		}
@@ -1339,15 +1353,15 @@ func PostConfirmHandler(c *gin.Context) {
 	result = db.Create(&adminConfirm)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Success sending confirmation to the user !",
-		"success : ": true,
-		"data : ":    adminConfirm,
+		"message": "Success sending confirmation to the user !",
+		"success": true,
+		"data":    adminConfirm,
 	})
 }
 
@@ -1357,30 +1371,30 @@ func PostPaymentHandler(c *gin.Context) {
 	err := c.BindJSON(&payment)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message : ": err.Error(),
-			"success : ": false,
+			"message": err.Error(),
+			"success": false,
 		})
 		return
 	}
 	result := db.Where("library_name = ?", payment.LibraryName)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	result = db.Create(&payment)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message : ": result.Error.Error(),
-			"success : ": false,
+			"message": result.Error.Error(),
+			"success": false,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"message : ": "Successfully add your payment data into database !",
-		"success : ": false,
-		"data : ":    payment,
+		"message": "Successfully add your payment data into database !",
+		"success": false,
+		"data":    payment,
 	})
 }
