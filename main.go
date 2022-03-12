@@ -385,13 +385,14 @@ func GetLibraryInfoHandler(c *gin.Context) {
 	var tempAdmin []gin.H
 	for _, value := range getAdmin {
 		tempAdmin = append(tempAdmin, gin.H{
+			"id":           value.ID,
 			"libraryname":  value.LibraryName,
 			"province":     value.Province,
 			"city":         value.City,
 			"district":     value.District,
 			"neigborhoods": value.Neighborhoods,
 			"phonenumber":  value.PhoneNumber,
-			"open - close": value.TimeOpenClose,
+			"openClose":    value.TimeOpenClose,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
