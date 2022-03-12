@@ -107,7 +107,7 @@ func AuthMiddlewareAdmin() gin.HandlerFunc {
 //Init disini
 
 func InitDB() error {
-	_db, err := gorm.Open(mysql.Open("root:@tcp(127.0.0.1:3306)/project1_libnow?parseTime=true"), &gorm.Config{})
+	_db, err := gorm.Open(mysql.Open("admin:HnVXVx8rF4G3YjS3nKuQrKVS7apg4Vzt@tcp(13.212.140.154:3306)/intern_bcc_12?parseTime=true"), &gorm.Config{})
 	if err != nil {
 		return err
 	}
