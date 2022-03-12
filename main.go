@@ -129,6 +129,7 @@ func InitRouter() {
 	router.POST("/user/returnbook", AuthMiddlewareUser(), ReturnBookHandler)
 	router.GET("/user/getlistlendbook/:id", AuthMiddlewareUser(), GetListLendBook)
 	router.GET("/user/extendreturnbook/:id", AuthMiddlewareUser(), PostExtendBookHandler)
+	router.GET("/user/:id", AuthMiddlewareUser(), GetProfileUserHandler)
 
 	router.POST("/admin/signup", PostSignupHandlerAdmin)
 	router.POST("/admin/login", PostLoginHandlerAdmin)
@@ -909,6 +910,33 @@ func PostExtendBookHandler(c *gin.Context) {
 	})
 }
 
+func GetProfileUserHandler(c *gin.Context) {
+	id, isIDExist := c.Params.Get("id")
+	if !isIDExist {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message": "Your profile doesn't exist !",
+			"success": false,
+		})
+		return
+	}
+	var user User
+	result := db.Where("id = ?", id).Take(&user)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": result.Error.Error(),
+			"success": false,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Success find your data !",
+		"success": true,
+		"data": gin.H{
+			"username":          user.Username,
+			"email/phonenumber": user.EmailOrPhoneNumber,
+		},
+	})
+}
 func PostSignupHandlerAdmin(c *gin.Context) {
 	var bodyUser Admin
 	err := c.BindJSON(&bodyUser)
